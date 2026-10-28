@@ -1,0 +1,157 @@
+import { useState, useEffect, useRef, useReducer } from 'react';
+
+const initialState = {
+  data: [],
+  isLoading: false,
+  isError: false,
+  searchTerm: 'react',
+  submittedSearchTerm: 'react',
+};
+
+function storiesReducer(state, action) {
+  switch (action.type) {
+    case 'FETCH_INIT':
+      return { ...state, isLoading: true, isError: false };
+
+    case 'FETCH_SUCCESS':
+      return { ...state, isLoading: false, data: action.payload };
+
+    case 'FETCH_FAILURE':
+      return { ...state, isLoading: false, isError: true };
+
+    case 'REMOVE_ITEM':
+      return {
+        ...state,
+        data: state.data.filter(
+          (item) => item.objectID !== action.payload
+        ),
+      };
+
+    case 'SET_SEARCH_TERM':
+      return { ...state, searchTerm: action.payload };
+
+    case 'SEARCH_SUBMIT':
+      return {
+        ...state,
+        submittedSearchTerm: state.searchTerm,
+      };
+
+    default:
+      throw new Error('Unknown action type');
+  }
+}
+
+function App() {
+  const inputRef = useRef(null);
+
+  const [state, dispatch] = useReducer(storiesReducer, initialState);
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    async function fetchArticles() {
+      dispatch({ type: 'FETCH_INIT' });
+
+      try {
+        const response = await fetch(
+          `https://hn.algolia.com/api/v1/search?query=${encodeURIComponent(
+            state.submittedSearchTerm
+          )}`,
+          { signal: controller.signal }
+        );
+
+        if (!response.ok) {
+          throw new Error('Could not fetch articles');
+        }
+
+        const result = await response.json();
+
+        dispatch({
+          type: 'FETCH_SUCCESS',
+          payload: result.hits,
+        });
+      } catch (error) {
+        if (error.name !== 'AbortError') {
+          dispatch({ type: 'FETCH_FAILURE' });
+        }
+      }
+    }
+
+    fetchArticles();
+
+    return () => controller.abort();
+  }, [state.submittedSearchTerm]);
+
+  return (
+    <div>
+      <h1>My Articles</h1>
+
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          dispatch({ type: 'SEARCH_SUBMIT' });
+        }}
+      >
+        <input
+          ref={inputRef}
+          type="text"
+          value={state.searchTerm}
+          onChange={(event) =>
+            dispatch({
+              type: 'SET_SEARCH_TERM',
+              payload: event.target.value,
+            })
+          }
+          placeholder="Search articles..."
+        />
+
+        <button
+          type="submit"
+          onClick={() => inputRef.current.focus()}
+        >
+          Search
+        </button>
+      </form>
+
+      {state.isLoading && <p>Loading articles...</p>}
+
+      {state.isError && (
+        <p>Something went wrong. Please try again.</p>
+      )}
+
+      {!state.isLoading &&
+        !state.isError &&
+        state.data.length === 0 && <p>No articles found.</p>}
+
+      {!state.isLoading &&
+        !state.isError &&
+        state.data.map((item) => (
+          <div key={item.objectID}>
+            <h3>
+              <a
+                href={
+                  item.url ||
+                  `https://news.ycombinator.com/item?id=${item.objectID}`
+                }
+                target="_blank"
+                rel="noreferrer"
+              >
+                {item.title || item.story_title || 'Untitled article'}
+              </a>
+            </h3>
+
+            <button
+              onClick={() =>
+                dispatch({
+                  type: 'REMOVE_ITEM',
+                  payload: item.objectID,
+                })
+              }
+            >
+              Dismiss
+            </button>
+          </div>
+        ))}
+    </div>
+  );
+}
